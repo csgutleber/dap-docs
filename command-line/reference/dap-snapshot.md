@@ -1,5 +1,5 @@
 ---
-description: Generate a complete and comprehensive snapshot of a table in a namespace.
+description: Generate a complete and comprehensive snapshot of a table in a namespace. bla
 ---
 
 # dap snapshot
