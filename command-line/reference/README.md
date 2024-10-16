@@ -2,8 +2,23 @@
 
 ### Available Commands
 
-[**dap snapshot**](broken-reference)\
-Generate a complete and comprehensive snapshot of a table in a namespace.
+[**dap snapshot**](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/)\
+\-
 
-[**dap incremental** ](broken-reference)\
-Generate a complete and comprehensive snapshot of a table in a namespace.
+[**dap incremental** ](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/)\
+\-
+
+[**dap list**](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/)\
+\-
+
+[**dap schema** ](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/)\
+\-
+
+[**dap initdb**](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/)\
+\-
+
+[**dap syncdb**](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/)\
+\-
+
+[**dap dropdb**](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/)\
+\-

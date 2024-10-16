@@ -5,4 +5,4 @@
   * [Security](readme/security.md)
   * [Reference](command-line/reference/README.md)
     * [dap snapshot](command-line/reference/dap-snapshot.md)
-    * [dap increment](readme/reference/dap-snapshot-1.md)
+    * [dap incremental](readme/reference/dap-snapshot-1.md)
