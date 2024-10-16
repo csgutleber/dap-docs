@@ -29,19 +29,11 @@ pip install instructure-dap-client
 
 If you are synchronizing with a database, install the package with the following features:
 
-PostgreSQL:
-
 ```bash
-pip install "instructure-dap-client[postgresql]"
+pip install "instructure-dap-client[postgresql,mysql]"
 ```
 
-MySQL:
-
-```bash
-pip install "instructure-dap-client[mysql]"
-```
-
-After installing the tool, follow the [Getting Started guide](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/) for detailed setup instructions.
+Learn more details about the installation and setup in the [Getting Started](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/) guide.
 
 ### Commands
 
