@@ -1,5 +1,6 @@
 # Table of contents
 
-* [Command Line](README.md)
+* [DAP CLI](README.md)
   * [Reference](command-line/reference/README.md)
     * [dap snapshot](command-line/reference/dap-snapshot.md)
+    * [dap increment](readme/reference/dap-snapshot-1.md)
