@@ -16,16 +16,8 @@ Before using DAP CLI, it is recommended to familiarize yourself with the key con
 
 ### Requirements
 
-**Supported Operating Systems:**
-
-* Ubuntu 22 (x86\_64 and AArch64 architectures)
-* Windows 11, Windows Server 2022
-* macOS 14
-
-**Supported Database Integrations:**
-
-* PostgreSQL 16.1 or above
-* MySQL 8.2 or later
+* **Supported Operating Systems:** Ubuntu 22, Windows 11, Windows Server 2022, macOS 1
+* **Supported Database Integrations:** PostgreSQL 16.1+, MySQL 8.2+
 
 ### Installation
 
@@ -48,6 +40,8 @@ MySQL:
 ```bash
 pip install "instructure-dap-client[mysql]"
 ```
+
+After installing the tool, follow the [Getting Started guide](https://app.gitbook.com/o/bxMToeZxeTDBdDYnurjg/s/md43XhVX1tvwrv25xyTO/) for detailed setup instructions.
 
 ### Commands
 
@@ -85,6 +79,8 @@ The default log level is `info`, and messages are printed to the console. To cha
 ```bash
 dap --loglevel debug --logfile dap.log initdb --namespace canvas --table accounts
 ```
+
+### Where To Get Help
 
 <table data-card-size="large" data-view="cards"><thead><tr><th></th><th></th><th></th><th data-type="content-ref"></th></tr></thead><tbody><tr><td>DAP Community</td><td>Visit our forums to connect with the community and learn more about DAP.</td><td></td><td></td></tr><tr><td>Support</td><td>To report bugs or request new features, open a ticket for our Support Team.</td><td></td><td></td></tr></tbody></table>
 
