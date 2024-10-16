@@ -1,15 +1,13 @@
 ---
-description: Generate a complete and comprehensive snapshot of a table in a namespace.
+description: Generate a complete snapshot of a table within a specific namespace.
 ---
 
 # dap snapshot
 
-These queries generate a complete and comprehensive snapshot of the entire dataset at a given point in time. Snapshot queries are ideal for creating an initial full copy of the dataset or for occasional full updates.
+The `dap snapshot` command generates a full snapshot of a dataset at a specific point in time. This is ideal for creating an initial full copy of the dataset or performing occasional full updates. Snapshots are useful for comprehensive analyses, audits, and backups.
 
-It is not recommended to request snapshots regularly, as it is resource-intensive on the API side and expensive to process on the client side. This approach ensures that you have a full, standalone version of the data, which can be useful for comprehensive analyses, audits, and backups.
-
-{% hint style="info" %}
-For the `canvas_logs` dataset, particularly the `web_logs` table, there is a 30-day data retention policy, so the snapshot will not cover the entire dataset but only the last 30 days of data.
+{% hint style="warning" %}
+Regular use of snapshots is not recommended, as they are resource-intensive for the API and costly to process on the client side.
 {% endhint %}
 
 ### Usage
@@ -52,3 +50,10 @@ Get a snapshot of the `courses` table from the Canvas namespace:\
 
 Get a snapshot of the `web_logs` table in CSV format\
 `$ dap snapshot --n canvas_logs --t web_logs --f csv`
+
+### Related
+
+<table data-view="cards"><thead><tr><th></th><th></th><th></th></tr></thead><tbody><tr><td>Key Concepts</td><td></td><td></td></tr><tr><td>Rate Limits &#x26; Policies</td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr></tbody></table>
+
+
+
