@@ -2,8 +2,8 @@
 
 ### Available Commands
 
-[**dap snapshot**](dap-snapshot.md)\
+[**dap snapshot**](broken-reference)\
 Generate a complete and comprehensive snapshot of a table in a namespace.
 
-[**dap incremental** ](dap-snapshot.md)\
+[**dap incremental** ](broken-reference)\
 Generate a complete and comprehensive snapshot of a table in a namespace.
