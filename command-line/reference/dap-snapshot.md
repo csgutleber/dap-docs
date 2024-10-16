@@ -18,6 +18,9 @@ dap [arguments] snapshot [flags]
 
 ### Arguments
 
+**`--base-url <string>`**\
+URL to the DAP API endpoint. Use `https://api-gateway.instructure.com`.
+
 **`--client-id <string>`**\
 Client ID obtained from the Identity Service. Skip, if `DAP_CLIENT_ID` environment variable is set.
 
@@ -27,7 +30,7 @@ Client Secret obtained from the Identity Service. Skip, if `DAP_CLIENT_SECRET` e
 ### Flags
 
 **`--namespace <string>`**\
-Specifies the data source (namespace).
+Specifies the data source (namespace). Available options: {canvas, canvas\_log, catalog}.
 
 **`--table <string>`**\
 Specifies the table fetch data from.
@@ -45,15 +48,15 @@ Displays help information for the command.
 
 ### Examples
 
-Get a snapshot of the `courses` table from the Canvas namespace:\
-`$ dap snapshot --n canvas --t courses`
+Get a snapshot of the `courses` table from the `canvas` namespace:\
+`$ dap snapshot --namespace canvas --table courses`
 
-Get a snapshot of the `web_logs` table in CSV format\
-`$ dap snapshot --n canvas_logs --t web_logs --f csv`
+Get a snapshot of the `web_logs` table from `canvas_log` namespace in CSV format\
+`$ dap snapshot --namespace canvas_logs --table web_logs --format csv`
 
 ### Related
 
-<table data-view="cards"><thead><tr><th></th><th></th><th></th></tr></thead><tbody><tr><td>Key Concepts</td><td></td><td></td></tr><tr><td>Rate Limits &#x26; Policies</td><td></td><td></td></tr><tr><td></td><td></td><td></td></tr></tbody></table>
+<table data-card-size="large" data-view="cards"><thead><tr><th></th><th></th><th></th></tr></thead><tbody><tr><td>Key Concepts</td><td></td><td></td></tr><tr><td>Rate Limits &#x26; Policies</td><td></td><td></td></tr></tbody></table>
 
 
 
