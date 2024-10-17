@@ -1,19 +1,19 @@
 ---
-description: Generate a complete snapshot of a table.
+description: Import a full snapshot of a table into a database.
 ---
 
-# dap snapshot
+# dap initdb
 
-This command generates and download a full snapshot of a table table within a namespace at a specific point in time. This is ideal for creating an initial full copy of the dataset or performing occasional full updates. Snapshots are useful for comprehensive analyses, audits, and backups.
+The `dap initdb` command automatically fetches the schema and data from DAP, connects to your specified database, creates the necessary table based on the schema, and inserts the data into the table. This process simplifies the initialization of a database with DAP data.
 
 {% hint style="warning" %}
-**Regular use of snapshots is not recommended**, as they are resource-intensive for the API and costly to process on the client side.
+**Type juggling is not supported.** The data types specified in the schema from the DAP API must be strictly followed during table creation and data insertion.
 {% endhint %}
 
 ### Usage
 
 ```
-dap [arguments] snapshot [flags]
+dap [arguments] initdb [flags]
 ```
 
 ### Arguments
@@ -35,11 +35,9 @@ Specifies the data source (namespace). Available options: {canvas, canvas\_log, 
 **`--table <string>`**\
 Specifies the table fetch data from.
 
-**`--format <string> (default: JSONL)`**\
-Defines the output format. Available options: {CSV, JSONL, Parquet, TSV}.
-
-**`--output-directory <string> (default: downloads)`**\
-Specifies the absolute or relative path to the output directory where the snapshot will be stored.
+**`--connection-string <string>`**\
+The connection string used to connect to the target database. It must follow RFC 3986 format:\
+`dialect://username:password@host:port/database`. Skip, if `DAP_CONNECTION_STRING` environment variable is set.
 
 ### Inherited Flags
 
@@ -48,11 +46,11 @@ Displays help information for the command.
 
 ### Examples
 
-Get a snapshot of the `courses` table from the `canvas` namespace\
-`$ dap snapshot --namespace canvas --table courses`
+Get a snapshot of the `courses` table from the `canvas` namespace and insert into your database\
+`$ dap initdb --namespace canvas --table courses`
 
-Get a snapshot of the `web_logs` table from `canvas_log` namespace in CSV format\
-`$ dap snapshot --namespace canvas_logs --table web_logs --format csv`
+Same example with the connection string defined in the command\
+`$dap initdb --namespace canvas --table courses --connection-string postgresql://scott:password@server.example.com/testdb`
 
 ### Related Resources
 

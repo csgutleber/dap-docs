@@ -1,19 +1,19 @@
 ---
-description: Generate a complete snapshot of a table.
+description: Synchronize data changes of a table to your database
 ---
 
-# dap snapshot
+# dap snycdb
 
-This command generates and download a full snapshot of a table table within a namespace at a specific point in time. This is ideal for creating an initial full copy of the dataset or performing occasional full updates. Snapshots are useful for comprehensive analyses, audits, and backups.
+Automatically retrieves incremental updates of a table, connects to your database, and applies these updates to the target table. This process is handled within a single atomic transaction, ensuring that, in case of an error, the data in your database remains consistent. Only tables that were created by `initdb` can be synchronized using `syncdb`.
 
 {% hint style="warning" %}
-**Regular use of snapshots is not recommended**, as they are resource-intensive for the API and costly to process on the client side.
+The timestamp for performing incremental queries is stored in the `dap_meta` table, along with other metadata about synchronized tables. The `dap_meta` table is maintained by the DAP client library and should not be modified or dropped.
 {% endhint %}
 
 ### Usage
 
 ```
-dap [arguments] snapshot [flags]
+dap [arguments] initdb [flags]
 ```
 
 ### Arguments
@@ -35,11 +35,9 @@ Specifies the data source (namespace). Available options: {canvas, canvas\_log, 
 **`--table <string>`**\
 Specifies the table fetch data from.
 
-**`--format <string> (default: JSONL)`**\
-Defines the output format. Available options: {CSV, JSONL, Parquet, TSV}.
-
-**`--output-directory <string> (default: downloads)`**\
-Specifies the absolute or relative path to the output directory where the snapshot will be stored.
+**`--connection-string <string>`**\
+The connection string used to connect to the target database. It must follow RFC 3986 format:\
+`dialect://username:password@host:port/database`. Skip, if `DAP_CONNECTION_STRING` environment variable is set.
 
 ### Inherited Flags
 
@@ -48,11 +46,11 @@ Displays help information for the command.
 
 ### Examples
 
-Get a snapshot of the `courses` table from the `canvas` namespace\
-`$ dap snapshot --namespace canvas --table courses`
+Get new or modified records of the `courses` table from the `canvas` namespace and insert into your database \
+`$ dap syncdb --namespace canvas --table courses`
 
-Get a snapshot of the `web_logs` table from `canvas_log` namespace in CSV format\
-`$ dap snapshot --namespace canvas_logs --table web_logs --format csv`
+Same example with the connection string defined in the command\
+`$dap syncdb --namespace canvas --table courses --connection-string postgresql://scott:password@server.example.com/testdb`
 
 ### Related Resources
 

@@ -1,19 +1,15 @@
 ---
-description: Generate a complete snapshot of a table.
+description: Retrieve changes or updates from a table.
 ---
 
-# dap snapshot
+# dap incremental
 
-This command generates and download a full snapshot of a table table within a namespace at a specific point in time. This is ideal for creating an initial full copy of the dataset or performing occasional full updates. Snapshots are useful for comprehensive analyses, audits, and backups.
-
-{% hint style="warning" %}
-**Regular use of snapshots is not recommended**, as they are resource-intensive for the API and costly to process on the client side.
-{% endhint %}
+Generates and downloads only the new or modified records of a table within a specified timeframe. This efficient, resource-effective approach helps keep datasets up-to-date with minimal overhead. Incremental queries enable near-real-time updates, reducing the need for frequent full dataset downloads.
 
 ### Usage
 
 ```
-dap [arguments] snapshot [flags]
+dap [arguments] incremental [flags]
 ```
 
 ### Arguments
@@ -35,6 +31,12 @@ Specifies the data source (namespace). Available options: {canvas, canvas\_log, 
 **`--table <string>`**\
 Specifies the table fetch data from.
 
+**`--since <datetime>`**\
+Start timestamp for the incremental query. Examples: `2024-12-01T09:30:00Z`
+
+**`--then <datetime>`**\
+End timestamp for the incremental query. Examples: `2024-12-01T09:30:00Z`
+
 **`--format <string> (default: JSONL)`**\
 Defines the output format. Available options: {CSV, JSONL, Parquet, TSV}.
 
@@ -48,11 +50,11 @@ Displays help information for the command.
 
 ### Examples
 
-Get a snapshot of the `courses` table from the `canvas` namespace\
-`$ dap snapshot --namespace canvas --table courses`
+Get new or modified records of the `courses` table from the `canvas` namespace since October 1, 2024\
+`$ dap incremental --namespace canvas --table courses --since 2024-11-01T00:00:00`
 
-Get a snapshot of the `web_logs` table from `canvas_log` namespace in CSV format\
-`$ dap snapshot --namespace canvas_logs --table web_logs --format csv`
+Get new or modified records of the `courses` table from the `canvas` namespace between October 1, 2024, and October 31, 2024\
+`$ dap incremental --namespace canvas --table courses --since 2024-11-01T00:00:00 --then 2024-11-01T00:00:00`
 
 ### Related Resources
 
