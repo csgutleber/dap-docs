@@ -2,6 +2,8 @@
 
 To maintain fair usage and performance, the following rate limits have been implemented on the [DAP Query API](https://github.com/instructure/data-access-platform-documentation/blob/master/docs/query-api.md).
 
+### TODO: Data refresh (4h)
+
 ### GET Requests
 
 <table data-full-width="true"><thead><tr><th>Requesst</th><th>Endpoint</th><th>Limit</th></tr></thead><tbody><tr><td>List tables</td><td><code>/query/{namespace}/table</code></td><td>5 requests per minute</td></tr><tr><td>Get table schema</td><td><code>/query/{namespace}/table/[table_name]/schema</code></td><td>500 calls per minute</td></tr><tr><td>Get job status</td><td><code>/job/</code></td><td>500 calls per minute</td></tr></tbody></table>
