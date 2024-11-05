@@ -12,3 +12,4 @@
     * [dap list](readme/reference/dap-snapshot-5.md)
     * [dap schema](readme/reference/dap-snapshot-6.md)
 * [Data Access Platform](data-access-platform.md)
+* [Rate Limits & Policies](rate-limits-and-policies.md)
