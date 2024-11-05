@@ -1,0 +1,19 @@
+<svg width="384" height="216" viewBox="0 0 384 216" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="384" height="216" fill="url(#paint0_linear_1_61)"/>
+<g clip-path="url(#clip0_1_61)">
+<path d="M192 98H168.667C166.899 98 165.203 98.7024 163.953 99.9526C162.702 101.203 162 102.899 162 104.667V118C162 119.768 162.702 121.464 163.953 122.714C165.203 123.964 166.899 124.667 168.667 124.667H178.667" stroke="white" stroke-width="3.33333" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M192 118H215.333C217.101 118 218.797 117.298 220.047 116.047C221.298 114.797 222 113.101 222 111.333V98C222 96.2319 221.298 94.5362 220.047 93.2859C218.797 92.0357 217.101 91.3333 215.333 91.3333H205.333" stroke="white" stroke-width="3.33333" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M178.667 98V84.6667C178.667 82.8986 179.369 81.2029 180.619 79.9526C181.869 78.7024 183.565 78 185.333 78H198.667C200.435 78 202.13 78.7024 203.381 79.9526C204.631 81.2029 205.333 82.8986 205.333 84.6667V101.333C205.333 103.101 204.631 104.797 203.381 106.047C202.13 107.298 200.435 108 198.667 108H185.333C183.565 108 181.869 108.702 180.619 109.953C179.369 111.203 178.667 112.899 178.667 114.667V131.333C178.667 133.101 179.369 134.797 180.619 136.047C181.869 137.298 183.565 138 185.333 138H198.667C200.435 138 202.13 137.298 203.381 136.047C204.631 134.797 205.333 133.101 205.333 131.333V118" stroke="white" stroke-width="3.33333" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M188.667 88V88.0333" stroke="white" stroke-width="3.33333" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M195.333 128V128.033" stroke="white" stroke-width="3.33333" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_1_61" x1="0" y1="0" x2="384" y2="228.5" gradientUnits="userSpaceOnUse">
+<stop stop-color="#9B2EC9"/>
+<stop offset="1" stop-color="#702291"/>
+</linearGradient>
+<clipPath id="clip0_1_61">
+<rect width="80" height="80" fill="white" transform="translate(152 68)"/>
+</clipPath>
+</defs>
+</svg>

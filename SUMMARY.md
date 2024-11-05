@@ -11,3 +11,4 @@
     * [dap dropdb](readme/reference/dap-snapshot-4.md)
     * [dap list](readme/reference/dap-snapshot-5.md)
     * [dap schema](readme/reference/dap-snapshot-6.md)
+* [Data Access Platform](data-access-platform.md)
