@@ -1,0 +1,1780 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Data Access Platform Query API",
+    "version": "1.0.0",
+    "description": "# Additional Resources\n\n* [Datasets](tables/index.html)\n* [Entity relationship diagram](erd/index.html)\n* [JSON schema](schema.json)\n* [DAP command-line interface and client library](client/index.html)\n* Database schemas: [PostgreSQL](sql/postgresql.sql) | [MySQL](sql/mysql.sql)\n* [Release notes](https://community.canvaslms.com/t5/Canvas-Change-Log/2024-API-and-CLI-Change-Log/ta-p/591713)\n* [Status of the DAP Query API](https://status.instructure.com/)\n\n# Data representation\n\nSnapshot and incremental queries in Data Access Platform (DAP) write output to AWS S3 buckets, and return pre-signed URLs to files (objects) in S3. Output comprises of records exported from data tables, and optional metadata associated with them.\n\n## Data formats\n\nDAP API supports several output data formats, including text (TSV), CSV and JSON. Data in all formats is transferred with GZIP compression.\n\n### Text (TSV)\n\nText format is a simple tabular format in which each record (table row) occupies a single line.\n\n* Output always begins with a header row, which lists all metadata and data field names.\n* Fields (table columns) are delimited by *tab* characters.\n* Non-printable characters and special values are escaped with *backslash* (`\\`), as shown below:\n\n| Escape | Interpretation               |\n| ------ | ---------------------------- |\n| `\\N`   | NULL value                   |\n| `\\b`   | Backspace (ASCII 8)          |\n| `\\f`   | Form feed (ASCII 12)         |\n| `\\n`   | Newline (ASCII 10)           |\n| `\\r`   | Carriage return (ASCII 13)   |\n| `\\t`   | Tab (ASCII 9)                |\n| `\\v`   | Vertical tab (ASCII 11)      |\n| `\\\\`   | Backslash (single character) |\n\nThis format allows data to be easily imported into a database engine, e.g. with PostgreSQL [COPY](https://www.postgresql.org/docs/current/sql-copy.html).\n\nOutput in this format is transmitted as media type `text/plain` in UTF-8 encoding.\n\n### Comma-separated values (CSV)\n\nComma-separated values (CSV) output follows [RFC 4180](https://www.ietf.org/rfc/rfc4180.html) with a few extensions:\n\n* Output always begins with a header row, which lists all metadata and data field names.\n* Strings are quoted with double quotes (`\"`) if they contain special characters such as the double quote itself, the comma delimiter, a newline, a carriage return, a tab character, etc.\n* Empty strings are always represented as `\"\"` to avoid ambiguity with missing values.\n* Missing values (a.k.a. `NULL`) are represented with no data (no characters between delimiters).\n* Each row has the same number of fields.\n\nThese extensions allow differentiating empty strings (`\"\"`) from missing values (a.k.a. `NULL`, represented as no data), for which RFC 4180 defines no rules. If a field is missing, the comma separators are still included, i.e. multiple comma separators may follow one another in a row if there is no data in subsequent fields.\n\nDouble quotes act as escape sequences inside a quoted string. If there are two consecutive double quote characters (i.e. `\"\"`), the sequence is interpreted as a single double quote character (`\"`). If a string contains newline or carriage return characters, they are emitted verbatim (in compliance with RFC 4180). As such, a record may be broken into several lines if the data contains newlines. (Some applications might not interpret these flawlessly, double-check your integration when you deal with CSV files.)\n\nThe following example demonstrates some of the above:\n```csv\nmeta.action,key.pkey,value.prop1,value.prop2\nU,1,a string,42\nU,2,\"a string, but in \"\"quotes\"\".\",\nD,3,,\nU,4,\"a multi-line\nstring\",\n```\n\nOutput in this format is transmitted as media type `text/csv` in UTF-8 encoding.\n\n### JSON Lines\n\nWhen the output data is represented in the [JSON Lines](https://jsonlines.org/) format, each record (table row) occupies a single line. Each line is a JSON object, which can be validated against the JSON schema returned by DAP API.\n\nOutput in this format is transmitted as media type `application/jsonlines` in UTF-8 encoding.\n\n## Metadata\n\nOutput of DAP API may include record-level metadata in addition to table data.\n\nIn tabular formats (such as text and CSV), metadata are included in the output as additional columns. Consider the following example:\n```csv\nmeta.action,key.pkey,value.prop1,value.prop2\nU,1,\"value1\",42\nU,2,\"value2\",NULL\nD,3,,\n```\n\nThis CSV output has a metadata section (`meta`), a primary key section (`key`) and a record value section (`value`). The metadata section contains a single field called `action`. The key and value sections comprise of several fields: `pkey`, `prop1` and `prop2`.\n\nIn the JSON Lines format, metadata, key and value sections are top-level properties `meta`, `key` and `value`, and have properties of their own:\n```json\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 1 }, \"value\": { \"prop1\": \"value1\", \"prop2\": 42 } }\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 2 }, \"value\": { \"prop1\": \"value2\", \"prop2\": null } }\n{ \"meta\": { \"action\": \"D\", ... }, \"key\": { \"pkey\": 3 } }\n```\n\nThe set of metadata fields returned depends on the context. Some contexts may produce fields that other contexts do not. If output would contain no metadata fields, the section is omitted entirely.\n\n### Action\n\nThe metadata field `action` identifies whether a record is *upserted* (inserted or updated) or *(hard) deleted* for an incremental query. In the result of a snapshot query, all records are to be understood as upserted.\n\n* Upserted records (denoted by `U`) have all fields present in the data.\n* Deleted records (denoted by `D`) only have the primary key field in their data, other field values are missing.\n\nOccasionally, the term *soft delete* is used, which in this context is equivalent to an update, and is denoted with a `U`, and all field values are included in the output.\n\n### Timestamp\n\nThe metadata field `ts` indicates when a record was last updated in the underlying transactional data lake table. For an incremental query with `since` and `until` timestamp parameters, `ts` for all returned records is always strictly greater than `since`, and always less than or equal to `until`.\n\nThe timestamp may correlate to but does not correspond to the real time when the event took place (e.g. when a student enrolled to a course). If you need to know when the event happened, use the timestamp embedded in the data. Specifically, many tables have timestamp data columns such as `created_at` or `updated_at`, which are controlled by the product or application that generates the event (e.g. Canvas).\n\nTimestamps are stored in fields of JSON type `string`, are formatted as per ISO-8601, and are to be understood as in time zone UTC. This is aligned with how timestamps are represented in the OpenAPI format `date-time` as per [RFC 3339](https://xml2rfc.tools.ietf.org/public/rfc/html/rfc3339.html#anchor14).\n\n## Format transformations\n\nTabular data formats such as CSV cannot capture the hierarchy that JSON can represent easily. Nested JSON objects are flattened before they are included in the output. For example, consider the JSON data:\n```json\n{\n    \"id\": 1,\n    \"question\": {\n        \"headline\": \"title\",\n        \"text\": \"some text\"\n    },\n    \"answers\": [\n        { \"answer\": \"A\", \"score\": 0 },\n        { \"answer\": \"B\", \"score\": 1 },\n        { \"answer\": \"C\", \"score\": 0 }\n    ]\n}\n```\nHere, the property `question` with two fixed sub-properties can be flattened into CSV columns `question.headline` and `question.text`. However, the property `answers` cannot be flattened because the list has an indeterminate cardinality. Items with indeterminate cardinality are transmitted as a JSON string. (Cardinality check is performed on the data (JSON) schema, not the actual data.)\n\nThis is how text output would look like after flattening (tabs are shown as four spaces):\n```\ndata.id    data.question.headline    data.question.text    data.answers\n1    title    some text    [{\"answer\":\"A\",\"score\":0},{\"answer\":\"B\",\"score\":1},{\"answer\":\"C\",\"score\":0}]\n```\n\nIn a similar fashion, this is how CSV output would look after flattening:\n```csv\ndata.id,data.question.headline,data.question.text,data.answers\n1,title,some text,\"[{\"\"answer\"\":\"\"A\"\",\"\"score\"\":0},{\"\"answer\"\":\"\"B\"\",\"\"score\"\":1},{\"\"answer\"\":\"\"C\"\",\"\"score\"\":0}]\"\n```\n\nIf you wish to avoid format transformations entirely, use the JSON Lines data format.\n"
+  },
+  "servers": [
+    {
+      "url": "https://api-gateway.instructure.com/dap"
+    }
+  ],
+  "paths": {
+    "/job/{id}": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "A snapshot query that has completed with success. **OR** An incremental query that has completed with success. **OR** A data access job that has terminated with failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CompleteSnapshotJob"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CompleteIncrementalJob"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FailedJob"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "A data access job in progress.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableJob"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client lacks valid authentication credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/AuthenticationError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The job does not exist or has expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NotFoundError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                },
+                "example": {
+                  "error": {
+                    "type": "ObjectNotFound",
+                    "uuid": "123e4567-e89b-12d3-a456-426614174000",
+                    "message": "Job does not exist.",
+                    "id": "12345678-1234-5678-1234-567812345678",
+                    "kind": "job"
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The requested account has not been onboarded yet. **OR** The requested account has been onboarded but client access has been restricted. **OR** Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is not onboarded."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is onboarded but access is forbidden."
+                        },
+                        {
+                          "$ref": "#/components/schemas/ProcessingError"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout error, usually should be handled with retry logic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/GatewayTimeoutError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "API"
+        ],
+        "summary": "Returns status information about a job.",
+        "description": "Jobs (and all objects they created) are deleted 24 hours after the job was started. Deleted jobs are no longer returned by this endpoint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Unique identifier returned when the job was started by querying data.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/object/url": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "A list of pre-signed URLs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The input is malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/ValidationError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client lacks valid authentication credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/AuthenticationError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Objects do not exist or have expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NotFoundError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The requested account has not been onboarded yet. **OR** The requested account has been onboarded but client access has been restricted. **OR** Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is not onboarded."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is onboarded but access is forbidden."
+                        },
+                        {
+                          "$ref": "#/components/schemas/ProcessingError"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout error, usually should be handled with retry logic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/GatewayTimeoutError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "API"
+        ],
+        "summary": "Produces a list of pre-signed URLs for a list of objects.",
+        "description": "In contrast to objects, which have a longer lifetime, pre-signed URLs are valid for a shorter duration,\ntypically 15 minutes.\n\nFile paths returned by this endpoint do not adhere to any specification. While they may contain auxiliary\ninformation such as job ID or part counter, these are only informative. Downstream systems should not depend\non any specific patterns of file names, or make any assumptions how much data each file contains.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Object"
+                }
+              },
+              "example": [
+                {
+                  "id": "uuid-1"
+                },
+                {
+                  "id": "uuid-2"
+                }
+              ]
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/query/{namespace}/table/{table}/data": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "A snapshot query that has completed with success. **OR** An incremental query that has completed with success. **OR** A data access job that has terminated with failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CompleteSnapshotJob"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CompleteIncrementalJob"
+                    },
+                    {
+                      "$ref": "#/components/schemas/FailedJob"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "A data access job in progress.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The input is malformed. **OR** There is no data in the requested range. **OR** Raised when data is queried outside of the allowed time range, and the table was reloaded recently.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ValidationError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/OutOfRangeError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/SnapshotRequiredError"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client lacks valid authentication credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/AuthenticationError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The namespace or table does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NotFoundError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The requested account has not been onboarded yet. **OR** The requested account has been onboarded but client access has been restricted. **OR** Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is not onboarded."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is onboarded but access is forbidden."
+                        },
+                        {
+                          "$ref": "#/components/schemas/ProcessingError"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout error, usually should be handled with retry logic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/GatewayTimeoutError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "API"
+        ],
+        "summary": "Queries a table for data.",
+        "description": "This is an asynchronous operation. Calling this endpoint will start a new job and return immediately with status information.\nHowever, the operation will continue running on the server. The caller can poll the status of the job to find out when it is\nready.\n\nIf a job with the same query parameters already exists, its details are returned rather than starting a new job.\n\nIf no scope is specified, then the endpoint uses the default scope of the authenticated user.\nReturns an error if the user has access to several scopes and the scope is not explicitly specified.\n\nFor incremental queries, the output uses a special metadata field called `action` to identify whether a record is *upserted*\n(inserted or updated) or *(hard) deleted* (`U` corresponds to upsert, and `D` to delete):\n```json\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 1 }, \"value\": { \"prop1\": \"value1\", \"prop2\": 42 } }\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 2 }, \"value\": { \"prop1\": \"value2\", \"prop2\": null } }\n{ \"meta\": { \"action\": \"D\", ... }, \"key\": { \"pkey\": 3 } }\n```\nUpserted records have the primary key fields present in the sub-object `key` and all other data fields in the sub-object `value`.\nDeleted records only have the primary key fields in the `key` property, and lack the `value` property.\n\nHard deletes are infrequent. They only take place when a record is irreversibly deleted from the source database, e.g. to comply\nwith privacy or legal requirements.\n\nIn most cases, records are *soft-deleted*, i.e. they are updated in such a way as to be understood *deleted* or *inactive* though\nthe record is retained in the database, e.g. by setting a `workflow_state` column to the value `inactive` or `deleted`. In this\ncontext, soft deletes are equivalent to an update, and are denoted with a `U`, and all field values are included in the output.\n\nIn the rare event that inserting a record is quickly followed by a hard delete in the source database between two successive\nincremental queries, a record might appear with a new (so far unseen) `key`, no `value` and an `action` of `D`.\n\nFor snapshot queries, deleted records are not included in the output:\n```json\n{ \"meta\": { ... }, \"key\": { \"pkey\": 1 }, \"value\": { \"prop1\": \"value1\", \"prop2\": 42 } }\n{ \"meta\": { ... }, \"key\": { \"pkey\": 2 }, \"value\": { \"prop1\": \"value2\", \"prop2\": null } }\n```\n\nThis is a rate-limited endpoint. If excessive data volume is requested repeatedly using this endpoint (e.g. a full snapshot every\nhour), future requests may be denied. We encourage making use of incremental queries, which substantially reduce the amount of data\nreturned.\n\n### Difference between snapshot and incremental Queries:\n\nSnapshot queries and incremental queries serve different purposes in data retrieval and management within the DAP environment.\n\n* **Snapshot Queries:** These queries generate a complete and comprehensive snapshot of the entire dataset at a given point in time. However, note that for the canvas_logs dataset, particularly the web_logs table, there is a 30-day data retention policy, so the snapshot will not cover the entire dataset but only the last 30 days of data. Snapshot queries are ideal for creating an initial full copy of the dataset or for occasional full updates. It is not recommended to request snapshots regularly, as it is resource-intensive on the API side and expensive to process on the client side. This approach ensures that you have a full, standalone version of the data, which can be useful for comprehensive analyses, audits, and backups.\n* **Incremental Queries:** In contrast, incremental queries retrieve only the changes or updates that have occurred since the last query. This method is more efficient and resource-effective as it minimizes data transfer by only fetching new or modified records. Incremental queries are ideal for keeping your dataset up-to-date with minimal overhead, enabling near-real-time data updates and reducing the need for frequent full dataset downloads.\n\nIt is recommended taking a snapshot exactly once (as an initialization step) and then using incremental queries thereafter.\nBy utilizing snapshot queries for initial data load and incremental queries for subsequent updates, users can maintain up-to-date datasets efficiently and effectively.",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Identifies the domain or product that the request pertains to, e.g. `canvas`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "table",
+            "in": "path",
+            "description": "Canonical name of the table whose data to return.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Identifies the scope to access, e.g. a root account UUID for Canvas, or a district ID for Mastery.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Query"
+              },
+              "example": {
+                "format": "jsonl",
+                "since": "2022-07-14T10:30:00Z",
+                "until": "2022-07-14T14:30:00Z"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/query/{namespace}/table": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "A list of tables in the given scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableList"
+                },
+                "example": {
+                  "tables": [
+                    "accounts",
+                    "submissions",
+                    "users"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client lacks valid authentication credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/AuthenticationError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The namespace does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NotFoundError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The requested account has not been onboarded yet. **OR** The requested account has been onboarded but client access has been restricted. **OR** Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is not onboarded."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is onboarded but access is forbidden."
+                        },
+                        {
+                          "$ref": "#/components/schemas/ProcessingError"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout error, usually should be handled with retry logic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/GatewayTimeoutError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "API"
+        ],
+        "summary": "Returns a list of table names that exist in the given scope (e.g. organization domain).",
+        "description": "If no scope is specified, then the endpoint uses the default scope of the authenticated user.\nReturns an error if the user has access to several scopes and the scope is not explicitly specified.",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Identifies the domain or product that the request pertains to, e.g. `canvas`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Identifies the scope to access, e.g. a root account UUID for Canvas, or a district ID for Mastery.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/query/{namespace}/table/{table}/schema": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The versioned JSON schema specification for the table.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionedSchema"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client lacks valid authentication credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/AuthenticationError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The namespace or table does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/NotFoundError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The requested account has not been onboarded yet. **OR** The requested account has been onboarded but client access has been restricted. **OR** Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is not onboarded."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+                            },
+                            "uuid": {
+                              "type": "string",
+                              "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+                            },
+                            "message": {
+                              "type": "string",
+                              "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "type",
+                            "uuid",
+                            "message"
+                          ],
+                          "title": "Raised when the client is onboarded but access is forbidden."
+                        },
+                        {
+                          "$ref": "#/components/schemas/ProcessingError"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway timeout error, usually should be handled with retry logic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "$ref": "#/components/schemas/GatewayTimeoutError"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "API"
+        ],
+        "summary": "Returns the JSON schema that records in the table conform to.",
+        "description": "If data is returned in JSON Lines format (`*.jsonl`) then the schema applies to the JSON object obtained by combining\nthe sub-objects accessed via the `key` and `value` properties, respectively, of JSON items.\n\nAssume the schema reads as follows:\n```json\n{\n    \"type\": \"object\",\n    \"properties\": {\n        \"pkey\": {\n            \"type\": \"integer\",\n            \"format\": \"int64\"\n        },\n        \"prop1\": {\n            \"type\": \"string\"\n        },\n        \"prop2\": {\n            \"type\": \"integer\"\n        },\n        \"additionalProperties\": false,\n        \"required\": [\n            \"pkey\",\n            \"prop1\"\n        ]\n    }\n}\n```\n\nSuppose we have the following JSON output:\n```json\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 1 }, \"value\": { \"prop1\": \"value1\", \"prop2\": 42 } }\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 2 }, \"value\": { \"prop1\": \"value2\", \"prop2\": null } }\n{ \"meta\": { \"action\": \"D\", ... }, \"key\": { \"pkey\": 3 } }\n```\nIn the example directly above, the first and second items (`update` records) would both validate against the pre-defined schema.\nThe validator would check the following synthesized JSON objects:\n```json\n{ \"pkey\": 1, \"prop1\": \"value1\", \"prop2\": 42 }\n{ \"pkey\": 2, \"prop1\": \"value2\", \"prop2\": null }\n```\nThe third item (a `delete` record) does not have to validate because it indicates that the client is to remove the item.\n\nIf data is returned in Comma-Separated Values format (`*.csv`) then the schema type constraints apply to CSV `key` and `value`\ncolumns, respectively, but not CSV `meta` columns. For example, assume we have the following CSV output:\n```csv\nmeta.action,key.pkey,value.prop1,value.prop2\nU,1,\"value1\",42\nU,2,\"value2\",\nD,3,,\n```\nThen the schema would read the same as in the JSON example above.\n\nNested JSON objects are flattened to simple fields, with composite names constructed using the dot notation (`parent.child`).\n\nIf no scope is specified, then the endpoint uses the default scope of the authenticated user.\nReturns an error if the user has access to several scopes and the scope is not explicitly specified.",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "description": "Identifies the domain or product that the request pertains to, e.g. `canvas`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "table",
+            "in": "path",
+            "description": "Canonical name of the table whose schema to return.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Identifies the scope to access, e.g. a root account UUID for Canvas, or a district ID for Mastery.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "components": {
+    "schemas": {
+      "CompleteIncrementalJob": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Opaque unique identifier of the job."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "running",
+              "complete",
+              "failed"
+            ],
+            "description": "The current status of the job."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time when job will no longer be available."
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Object"
+            },
+            "description": "The list of objects generated by the job."
+          },
+          "schema_version": {
+            "type": "integer",
+            "description": "Version of the schema that records in the table conform to."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Start timestamp (in UTC); only those records are returned that have been persisted since the specified date and time."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "End timestamp (in UTC); only those records are returned that have been persisted before the specified date and time. This can be used as a starting point for future incremental queries."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "objects",
+          "schema_version",
+          "since",
+          "until"
+        ],
+        "title": "An incremental query that has completed with success."
+      },
+      "CompleteSnapshotJob": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Opaque unique identifier of the job."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "running",
+              "complete",
+              "failed"
+            ],
+            "description": "The current status of the job."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time when job will no longer be available."
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Object"
+            },
+            "description": "The list of objects generated by the job."
+          },
+          "schema_version": {
+            "type": "integer",
+            "description": "Version of the schema that records in the table conform to."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp (in UTC) that identifies the table state. This can be used as a starting point for future incremental queries."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "objects",
+          "schema_version",
+          "at"
+        ],
+        "title": "A snapshot query that has completed with success."
+      },
+      "FailedJob": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Opaque unique identifier of the job."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "running",
+              "complete",
+              "failed"
+            ],
+            "description": "The current status of the job."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time when job will no longer be available."
+          },
+          "error": {
+            "$ref": "#/components/schemas/ProcessingError",
+            "description": "Provides more details on the error that occurred."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "error"
+        ],
+        "title": "A data access job that has terminated with failure."
+      },
+      "Object": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Uniquely identifies the object."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "title": "A reference to a binary or text object persisted in object storage, such as a CSV, JSON, or Parquet file.",
+        "description": "The lifetime of the object depends on the operation that created it but typically lasts for 24 hours.\nObject identifiers can be traded for pre-signed URLs via an authenticated endpoint operation while the object exists."
+      },
+      "ProcessingError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "uuid",
+          "message"
+        ],
+        "title": "Raised when a job has terminated due to an unexpected error."
+      },
+      "TableJob": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Opaque unique identifier of the job."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "running",
+              "complete",
+              "failed"
+            ],
+            "description": "The current status of the job."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The time when job will no longer be available."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "A data access job in progress."
+      },
+      "AuthenticationError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "uuid",
+          "message"
+        ],
+        "title": "Raised when the client fails to provide valid authentication credentials."
+      },
+      "NotFoundError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+          },
+          "id": {
+            "type": "string",
+            "description": "The identifier of the entity not found, e.g. the name of a table or the UUID of a job."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The entity that is not found such as a namespace, table, object or job."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "uuid",
+          "message",
+          "id",
+          "kind"
+        ],
+        "title": "Raised when an entity does not exist or has expired."
+      },
+      "GatewayTimeoutError": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Always the same message signaling that a timeout received."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "message"
+        ],
+        "title": "Raised when received timeout from gateway."
+      },
+      "Resource": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "$ref": "#/components/schemas/URL",
+            "description": "URL to the object."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "title": "A pre-signed URL to a binary or text object persisted in object storage, such as a CSV, JSON or Parquet file.",
+        "description": "The lifetime of the pre-signed URL depends on the operation that created it but typically lasts for 15 minutes.\nNo authentication is required to fetch the object via the pre-signed URL."
+      },
+      "URL": {
+        "type": "string",
+        "format": "uri",
+        "pattern": "^https?://",
+        "title": "A Uniform Resource Locator (URL)."
+      },
+      "ResourceResult": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Resource"
+            },
+            "description": "A dictionary of key-value pairs consisting of an ObjectID and the corresponding resource URL."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "urls"
+        ],
+        "title": "Associates object identifiers with pre-signed URLs to output resources."
+      },
+      "ValidationError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+          },
+          "location": {
+            "type": "object",
+            "properties": {
+              "line": {
+                "type": "integer",
+                "description": "Line number (1-based)."
+              },
+              "column": {
+                "type": "integer",
+                "description": "Column number w.r.t. the beginning of the line (1-based)."
+              },
+              "character": {
+                "type": "integer",
+                "description": "Character number w.r.t. the beginning of the input (1-based)."
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "line",
+              "column",
+              "character"
+            ],
+            "description": "Location of where invalid input was found."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "uuid",
+          "message",
+          "location"
+        ],
+        "title": "Raised when a JSON validation error occurs."
+      },
+      "Format": {
+        "type": "string",
+        "enum": [
+          "tsv",
+          "csv",
+          "jsonl",
+          "parquet"
+        ],
+        "title": "Identifies the format of the data returned, e.g. TSV, CSV, JSON Lines, or Parquet.",
+        "description": "Tab-separated values (TSV) is a simple tabular format in which each record (table row) occupies a single line.\n\n* Output always begins with a header row, which lists all metadata and data field names.\n* Fields (table columns) are delimited by *tab* characters.\n* Non-printable characters and special values are escaped with *backslash* (`\\\\`).\n\nComma-separated values (CSV) output follows [RFC 4180](https://www.ietf.org/rfc/rfc4180.html) with a few extensions:\n\n* Output always begins with a header row, which lists all metadata and data field names.\n* Strings are quoted with double quotes (`\"`) if they contain special characters such as the double quote itself,\n  the comma delimiter, a newline, a carriage return, a tab character, etc., or if their string representation would\n  be identical to a special value such as NULL.\n* Empty strings are always represented as `\"\"`.\n* NULL values are represented with the unquoted literal string `NULL`.\n* Missing values are presented as an empty string (no characters between delimiters).\n* Each row has the same number of fields.\n\nWhen the output data is represented in the [JSON Lines](https://jsonlines.org/) format, each record (table row)\noccupies a single line. Each line is a JSON object, which can be validated against the corresponding JSON schema.\n\nProperties with `null` values are omitted in JSON.\n\nParquet files are compatible with Spark version 3.0 and later."
+      },
+      "IncrementalQuery": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "$ref": "#/components/schemas/Format",
+            "description": "The format of the data to be returned."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Mode",
+            "description": "Output generation mode."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Start timestamp (in UTC); only those records are returned that have been persisted since the specified date and time. This typically equals `at` returned by a previous snapshot query job, or `until` returned by a previous incremental query job."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "End timestamp (in UTC); only those records are returned that have not been changed after the specified date and time. If omitted (recommended), defaults to the commit time of the latest record."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "since"
+        ],
+        "title": "Incremental queries return consolidated updates to a table, and help update a previous state to the present state.",
+        "description": "If only a *since* timestamp is given (recommended), the operation returns all changes since the specified point in\ntime. If multiple updates took place to a record since the specified time, only the most recent version of the\nrecord is returned.\n\nIf both a *since* and an *until* timestamp is given, the operation returns all records that have changed since\nthe start timestamp of the interval but have not been altered after the end timestamp of the interval. Any records\nthat have been updated after the *until* timestamp are not included in the query result. This functionality is\nuseful to break up larger batches of changes but cannot be reliably used as a means of reconstructing a database\nstate in the past (i.e. a point-in-time query or a backup of a previous state).\n\nThe range defined by *since* and *until* is inclusive for the *since* timestamp but exclusive for the *until*\ntimestamp.\n\nYou would normally use incremental queries to fetch changes since a snapshot query or a previous incremental query.\nIf issued as a follow-up to a snapshot query, the *since* timestamp of the incremental query would be equal to the\n*at* timestamp of the snapshot query. If issued as a follow-up to an incremental query, you would chain the *until*\ntimestamp returned by the previous query job with the *since* timestamp of the new query request."
+      },
+      "Mode": {
+        "type": "string",
+        "enum": [
+          "expanded",
+          "condensed"
+        ],
+        "title": "Output generation mode controls how nested fixed-cardinality fields are expanded into columns.",
+        "description": "Mode `expanded` lays out nested fixed-cardinality fields into several columns. Consider the following example for TSV:\n```tsv\nmeta.ts               meta.action  key.id  value.plain  value.nested.sub1  value.nested.sub2  value.nested.sub3\n2023-10-23T01:02:03Z  U            1       string       1                  multi-\\nline        \\N\n```\n\nMode `condensed` keeps nested fields together. Observe how a nested field becomes a single JSON-valued field:\n```tsv\nmeta.ts               meta.action  key.id  value.plain  value.nested\n2023-10-23T01:02:03Z  U            1       string       {\"sub1\": 1, \"sub2\": \"multi-\\\\nline\"}\n```\n\nIn case both JSON and the output format (e.g. CSV or TSV) define escaping rules, they are applied consecutively.\nThis is why there are multiple backslash characters in the example above: JSON escapes a newline character as\n`\\n`, and then TSV escapes the backslash character to make the sequence `\\\\n`.\n\nProperties with `null` values are omitted in condensed nested fields, as in JSON.\n\nIf all nested values are *NULL*, the tabular result is empty, not `{}` (empty JSON object). Specifically, TSV\nwould write `\\N` (*NULL*) and CSV would write no value (blank field).\n\nOutput generation mode does not affect fields `meta` and `key`, which are always expanded. Likewise,\nvariable-cardinality fields (e.g. JSON `array` or `object`) are unaffected by `mode`, and are always exported as\nJSON."
+      },
+      "Query": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SnapshotQuery"
+          },
+          {
+            "$ref": "#/components/schemas/IncrementalQuery"
+          }
+        ]
+      },
+      "SnapshotQuery": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "$ref": "#/components/schemas/Format",
+            "description": "The format of the data to be returned."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Mode",
+            "description": "Output generation mode."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "format"
+        ],
+        "title": "Snapshot queries return the present state of the table.",
+        "description": "Snapshot queries help populate an empty database. After the initial snapshot query, you would use incremental\nqueries to get the most up-to-date version of the data."
+      },
+      "OutOfRangeError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The earliest permitted timestamp."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The latest permitted timestamp."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "uuid",
+          "message",
+          "since"
+        ],
+        "title": "Raised when data is queried outside of the allowed time range."
+      },
+      "SnapshotRequiredError": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "A machine-processable identifier for the error. Typically corresponds to the fully-qualified exception class, as per the type system of the language that emitted the message (e.g. Java, Python or Scala exception type)."
+          },
+          "uuid": {
+            "type": "string",
+            "description": "Unique identifier of the error. This identifier helps locate the exact source of the error (e.g. find the log entry in the server log stream). Make sure to include this identifier when contacting support."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable description for the error for informational purposes. The exact format of the message is unspecified, and implementations should not rely on the presence of any specific information."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The earliest permitted timestamp."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The latest permitted timestamp."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "uuid",
+          "message",
+          "since"
+        ],
+        "title": "Raised when data is queried outside of the allowed time range, and the table was reloaded recently. A new snapshot is required to keep data consistency."
+      },
+      "TableList": {
+        "type": "object",
+        "properties": {
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "tables"
+        ],
+        "title": "A list of tables that exist in the organization domain."
+      },
+      "JsonType": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonType"
+            }
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JsonType"
+            }
+          }
+        ],
+        "examples": [
+          {
+            "property1": null,
+            "property2": true,
+            "property3": 64,
+            "property4": "string",
+            "property5": [
+              "item"
+            ],
+            "property6": {
+              "key": "value"
+            }
+          }
+        ]
+      },
+      "VersionedSchema": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonType"
+            },
+            "description": "The JSON Schema object to validate against."
+          },
+          "version": {
+            "type": "integer",
+            "description": "The version of the schema."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "version"
+        ],
+        "title": "The state of the schema at a specific point in time.",
+        "description": "Schemas are backwards compatible. They receive strictly monotonically increasing version numbers as schema\nevolution takes place.",
+        "examples": [
+          {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "title": "The ID of this version object. Primary key."
+                },
+                "user_id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "title": "The ID of the submitter. Foreign key to `users.id`."
+                },
+                "context_id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "title": "The ID of the course this submission belongs to. Foreign key to `courses.id`."
+                },
+                "context_type": {
+                  "type": "string",
+                  "enum": [
+                    "Course"
+                  ],
+                  "title": "The type of the context object (typically `Course`)."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "context_type"
+              ],
+              "title": "This table stores information describing previous versions of individual submission objects."
+            },
+            "version": 1
+          }
+        ]
+      }
+    },
+    "responses": {},
+    "securitySchemes": {
+      "Default": {
+        "type": "http",
+        "description": "Authenticates a request by verifying a JWT (JSON Web Token) passed in the `Authorization` HTTP header.",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "Default": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "API"
+    },
+    {
+      "name": "CompleteIncrementalJob",
+      "description": "An incremental query that has completed with success.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/CompleteIncrementalJob\" />"
+    },
+    {
+      "name": "CompleteSnapshotJob",
+      "description": "A snapshot query that has completed with success.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/CompleteSnapshotJob\" />"
+    },
+    {
+      "name": "FailedJob",
+      "description": "A data access job that has terminated with failure.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/FailedJob\" />"
+    },
+    {
+      "name": "Object",
+      "description": "A reference to a binary or text object persisted in object storage, such as a CSV, JSON, or Parquet file.\n\nThe lifetime of the object depends on the operation that created it but typically lasts for 24 hours.\nObject identifiers can be traded for pre-signed URLs via an authenticated endpoint operation while the object exists.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/Object\" />"
+    },
+    {
+      "name": "ProcessingError",
+      "description": "Raised when a job has terminated due to an unexpected error.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/ProcessingError\" />"
+    },
+    {
+      "name": "TableJob",
+      "description": "A data access job in progress.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/TableJob\" />"
+    },
+    {
+      "name": "AuthenticationError",
+      "description": "Raised when the client fails to provide valid authentication credentials.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/AuthenticationError\" />"
+    },
+    {
+      "name": "NotFoundError",
+      "description": "Raised when an entity does not exist or has expired.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/NotFoundError\" />"
+    },
+    {
+      "name": "GatewayTimeoutError",
+      "description": "Raised when received timeout from gateway.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/GatewayTimeoutError\" />"
+    },
+    {
+      "name": "Resource",
+      "description": "A pre-signed URL to a binary or text object persisted in object storage, such as a CSV, JSON or Parquet file.\n\nThe lifetime of the pre-signed URL depends on the operation that created it but typically lasts for 15 minutes.\nNo authentication is required to fetch the object via the pre-signed URL.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/Resource\" />"
+    },
+    {
+      "name": "URL",
+      "description": "A Uniform Resource Locator (URL).\n\n<SchemaDefinition schemaRef=\"#/components/schemas/URL\" />"
+    },
+    {
+      "name": "ResourceResult",
+      "description": "Associates object identifiers with pre-signed URLs to output resources.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/ResourceResult\" />"
+    },
+    {
+      "name": "ValidationError",
+      "description": "Raised when a JSON validation error occurs.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/ValidationError\" />"
+    },
+    {
+      "name": "Format",
+      "description": "Identifies the format of the data returned, e.g. TSV, CSV, JSON Lines, or Parquet.\n\nTab-separated values (TSV) is a simple tabular format in which each record (table row) occupies a single line.\n\n* Output always begins with a header row, which lists all metadata and data field names.\n* Fields (table columns) are delimited by *tab* characters.\n* Non-printable characters and special values are escaped with *backslash* (`\\\\`).\n\nComma-separated values (CSV) output follows [RFC 4180](https://www.ietf.org/rfc/rfc4180.html) with a few extensions:\n\n* Output always begins with a header row, which lists all metadata and data field names.\n* Strings are quoted with double quotes (`\"`) if they contain special characters such as the double quote itself,\n  the comma delimiter, a newline, a carriage return, a tab character, etc., or if their string representation would\n  be identical to a special value such as NULL.\n* Empty strings are always represented as `\"\"`.\n* NULL values are represented with the unquoted literal string `NULL`.\n* Missing values are presented as an empty string (no characters between delimiters).\n* Each row has the same number of fields.\n\nWhen the output data is represented in the [JSON Lines](https://jsonlines.org/) format, each record (table row)\noccupies a single line. Each line is a JSON object, which can be validated against the corresponding JSON schema.\n\nProperties with `null` values are omitted in JSON.\n\nParquet files are compatible with Spark version 3.0 and later.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/Format\" />"
+    },
+    {
+      "name": "IncrementalQuery",
+      "description": "Incremental queries return consolidated updates to a table, and help update a previous state to the present state.\n\nIf only a *since* timestamp is given (recommended), the operation returns all changes since the specified point in\ntime. If multiple updates took place to a record since the specified time, only the most recent version of the\nrecord is returned.\n\nIf both a *since* and an *until* timestamp is given, the operation returns all records that have changed since\nthe start timestamp of the interval but have not been altered after the end timestamp of the interval. Any records\nthat have been updated after the *until* timestamp are not included in the query result. This functionality is\nuseful to break up larger batches of changes but cannot be reliably used as a means of reconstructing a database\nstate in the past (i.e. a point-in-time query or a backup of a previous state).\n\nThe range defined by *since* and *until* is inclusive for the *since* timestamp but exclusive for the *until*\ntimestamp.\n\nYou would normally use incremental queries to fetch changes since a snapshot query or a previous incremental query.\nIf issued as a follow-up to a snapshot query, the *since* timestamp of the incremental query would be equal to the\n*at* timestamp of the snapshot query. If issued as a follow-up to an incremental query, you would chain the *until*\ntimestamp returned by the previous query job with the *since* timestamp of the new query request.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/IncrementalQuery\" />"
+    },
+    {
+      "name": "Mode",
+      "description": "Output generation mode controls how nested fixed-cardinality fields are expanded into columns.\n\nMode `expanded` lays out nested fixed-cardinality fields into several columns. Consider the following example for TSV:\n```tsv\nmeta.ts               meta.action  key.id  value.plain  value.nested.sub1  value.nested.sub2  value.nested.sub3\n2023-10-23T01:02:03Z  U            1       string       1                  multi-\\nline        \\N\n```\n\nMode `condensed` keeps nested fields together. Observe how a nested field becomes a single JSON-valued field:\n```tsv\nmeta.ts               meta.action  key.id  value.plain  value.nested\n2023-10-23T01:02:03Z  U            1       string       {\"sub1\": 1, \"sub2\": \"multi-\\\\nline\"}\n```\n\nIn case both JSON and the output format (e.g. CSV or TSV) define escaping rules, they are applied consecutively.\nThis is why there are multiple backslash characters in the example above: JSON escapes a newline character as\n`\\n`, and then TSV escapes the backslash character to make the sequence `\\\\n`.\n\nProperties with `null` values are omitted in condensed nested fields, as in JSON.\n\nIf all nested values are *NULL*, the tabular result is empty, not `{}` (empty JSON object). Specifically, TSV\nwould write `\\N` (*NULL*) and CSV would write no value (blank field).\n\nOutput generation mode does not affect fields `meta` and `key`, which are always expanded. Likewise,\nvariable-cardinality fields (e.g. JSON `array` or `object`) are unaffected by `mode`, and are always exported as\nJSON.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/Mode\" />"
+    },
+    {
+      "name": "Query",
+      "description": "<SchemaDefinition schemaRef=\"#/components/schemas/Query\" />"
+    },
+    {
+      "name": "SnapshotQuery",
+      "description": "Snapshot queries return the present state of the table.\n\nSnapshot queries help populate an empty database. After the initial snapshot query, you would use incremental\nqueries to get the most up-to-date version of the data.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/SnapshotQuery\" />"
+    },
+    {
+      "name": "OutOfRangeError",
+      "description": "Raised when data is queried outside of the allowed time range.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/OutOfRangeError\" />"
+    },
+    {
+      "name": "SnapshotRequiredError",
+      "description": "Raised when data is queried outside of the allowed time range, and the table was reloaded recently. A new snapshot is required to keep data consistency.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/SnapshotRequiredError\" />"
+    },
+    {
+      "name": "TableList",
+      "description": "A list of tables that exist in the organization domain.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/TableList\" />"
+    },
+    {
+      "name": "JsonType",
+      "description": "<SchemaDefinition schemaRef=\"#/components/schemas/JsonType\" />"
+    },
+    {
+      "name": "VersionedSchema",
+      "description": "The state of the schema at a specific point in time.\n\nSchemas are backwards compatible. They receive strictly monotonically increasing version numbers as schema\nevolution takes place.\n\n<SchemaDefinition schemaRef=\"#/components/schemas/VersionedSchema\" />"
+    }
+  ],
+  "x-tagGroups": [
+    {
+      "name": "Operations",
+      "tags": [
+        "API"
+      ]
+    },
+    {
+      "name": "API types",
+      "tags": [
+        "AuthenticationError",
+        "CompleteIncrementalJob",
+        "CompleteSnapshotJob",
+        "FailedJob",
+        "Format",
+        "GatewayTimeoutError",
+        "IncrementalQuery",
+        "JsonType",
+        "Mode",
+        "NotFoundError",
+        "Object",
+        "OutOfRangeError",
+        "ProcessingError",
+        "Query",
+        "Resource",
+        "ResourceResult",
+        "SnapshotQuery",
+        "SnapshotRequiredError",
+        "TableJob",
+        "TableList",
+        "URL",
+        "ValidationError",
+        "VersionedSchema"
+      ]
+    }
+  ]
+}
