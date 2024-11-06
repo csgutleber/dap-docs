@@ -52,6 +52,12 @@ The DAP CLI tool allows you to interact with the Canvas Data 2 API. Installation
     pip3 install "instructure-dap-client[postgresql]"
     ```
 
+If you miss installing an extra feature, the library will not be able to synchronize data with a database, and you may get an error message similar to the following:
+
+```bash
+ERROR - missing dependency: `asyncpg`; you may need to run `pip install pysqlsync[postgresql]`
+```
+
 ## 3. Store Client Credentials in Environment Variables
 
 For secure access to the API, it's recommended to store your credentials as environment variables. This prevents sensitive information from being exposed in command-line arguments.
