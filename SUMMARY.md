@@ -17,3 +17,4 @@
 * [OpenAPI](openapi.md)
 * [Datasets](datasets.md)
 * [Namespaces](namespaces.md)
+* [Authentication](authentication.md)
