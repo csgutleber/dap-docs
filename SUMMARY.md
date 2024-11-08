@@ -18,3 +18,8 @@
 * [Datasets](datasets.md)
 * [Namespaces](namespaces.md)
 * [Authentication](authentication.md)
+* [Status Codes](status-codes.md)
+* [Query API](query-api.md)
+* [Page](page.md)
+* [Key Concepts](key-concepts.md)
+* [Data Formats](data-formats.md)

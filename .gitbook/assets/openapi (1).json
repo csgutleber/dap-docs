@@ -185,7 +185,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Get job",
+        "summary": "Returns status information about a job.",
         "description": "Jobs (and all objects they created) are deleted 24 hours after the job was started. Deleted jobs are no longer returned by this endpoint.",
         "parameters": [
           {
@@ -364,7 +364,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Create pre-signed URLs",
+        "summary": "Produces a list of pre-signed URLs for a list of objects.",
         "description": "In contrast to objects, which have a longer lifetime, pre-signed URLs are valid for a shorter duration,\ntypically 15 minutes.\n\nFile paths returned by this endpoint do not adhere to any specification. While they may contain auxiliary\ninformation such as job ID or part counter, these are only informative. Downstream systems should not depend\non any specific patterns of file names, or make any assumptions how much data each file contains.",
         "parameters": [],
         "requestBody": {
@@ -584,7 +584,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Create job",
+        "summary": "Queries a table for data.",
         "description": "This is an asynchronous operation. Calling this endpoint will start a new job and return immediately with status information.\nHowever, the operation will continue running on the server. The caller can poll the status of the job to find out when it is\nready.\n\nIf a job with the same query parameters already exists, its details are returned rather than starting a new job.\n\nIf no scope is specified, then the endpoint uses the default scope of the authenticated user.\nReturns an error if the user has access to several scopes and the scope is not explicitly specified.\n\nFor incremental queries, the output uses a special metadata field called `action` to identify whether a record is *upserted*\n(inserted or updated) or *(hard) deleted* (`U` corresponds to upsert, and `D` to delete):\n```json\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 1 }, \"value\": { \"prop1\": \"value1\", \"prop2\": 42 } }\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 2 }, \"value\": { \"prop1\": \"value2\", \"prop2\": null } }\n{ \"meta\": { \"action\": \"D\", ... }, \"key\": { \"pkey\": 3 } }\n```\nUpserted records have the primary key fields present in the sub-object `key` and all other data fields in the sub-object `value`.\nDeleted records only have the primary key fields in the `key` property, and lack the `value` property.\n\nHard deletes are infrequent. They only take place when a record is irreversibly deleted from the source database, e.g. to comply\nwith privacy or legal requirements.\n\nIn most cases, records are *soft-deleted*, i.e. they are updated in such a way as to be understood *deleted* or *inactive* though\nthe record is retained in the database, e.g. by setting a `workflow_state` column to the value `inactive` or `deleted`. In this\ncontext, soft deletes are equivalent to an update, and are denoted with a `U`, and all field values are included in the output.\n\nIn the rare event that inserting a record is quickly followed by a hard delete in the source database between two successive\nincremental queries, a record might appear with a new (so far unseen) `key`, no `value` and an `action` of `D`.\n\nFor snapshot queries, deleted records are not included in the output:\n```json\n{ \"meta\": { ... }, \"key\": { \"pkey\": 1 }, \"value\": { \"prop1\": \"value1\", \"prop2\": 42 } }\n{ \"meta\": { ... }, \"key\": { \"pkey\": 2 }, \"value\": { \"prop1\": \"value2\", \"prop2\": null } }\n```\n\nThis is a rate-limited endpoint. If excessive data volume is requested repeatedly using this endpoint (e.g. a full snapshot every\nhour), future requests may be denied. We encourage making use of incremental queries, which substantially reduce the amount of data\nreturned.\n\n### Difference between snapshot and incremental Queries:\n\nSnapshot queries and incremental queries serve different purposes in data retrieval and management within the DAP environment.\n\n* **Snapshot Queries:** These queries generate a complete and comprehensive snapshot of the entire dataset at a given point in time. However, note that for the canvas_logs dataset, particularly the web_logs table, there is a 30-day data retention policy, so the snapshot will not cover the entire dataset but only the last 30 days of data. Snapshot queries are ideal for creating an initial full copy of the dataset or for occasional full updates. It is not recommended to request snapshots regularly, as it is resource-intensive on the API side and expensive to process on the client side. This approach ensures that you have a full, standalone version of the data, which can be useful for comprehensive analyses, audits, and backups.\n* **Incremental Queries:** In contrast, incremental queries retrieve only the changes or updates that have occurred since the last query. This method is more efficient and resource-effective as it minimizes data transfer by only fetching new or modified records. Incremental queries are ideal for keeping your dataset up-to-date with minimal overhead, enabling near-real-time data updates and reducing the need for frequent full dataset downloads.\n\nIt is recommended taking a snapshot exactly once (as an initialization step) and then using incremental queries thereafter.\nBy utilizing snapshot queries for initial data load and incremental queries for subsequent updates, users can maintain up-to-date datasets efficiently and effectively.",
         "parameters": [
           {
@@ -784,7 +784,7 @@
         "tags": [
           "API"
         ],
-        "summary": "List tables",
+        "summary": "Returns a list of table names that exist in the given scope (e.g. organization domain).",
         "description": "If no scope is specified, then the endpoint uses the default scope of the authenticated user.\nReturns an error if the user has access to several scopes and the scope is not explicitly specified.",
         "parameters": [
           {
@@ -953,7 +953,7 @@
         "tags": [
           "API"
         ],
-        "summary": "Get table schema",
+        "summary": "Returns the JSON schema that records in the table conform to.",
         "description": "If data is returned in JSON Lines format (`*.jsonl`) then the schema applies to the JSON object obtained by combining\nthe sub-objects accessed via the `key` and `value` properties, respectively, of JSON items.\n\nAssume the schema reads as follows:\n```json\n{\n    \"type\": \"object\",\n    \"properties\": {\n        \"pkey\": {\n            \"type\": \"integer\",\n            \"format\": \"int64\"\n        },\n        \"prop1\": {\n            \"type\": \"string\"\n        },\n        \"prop2\": {\n            \"type\": \"integer\"\n        },\n        \"additionalProperties\": false,\n        \"required\": [\n            \"pkey\",\n            \"prop1\"\n        ]\n    }\n}\n```\n\nSuppose we have the following JSON output:\n```json\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 1 }, \"value\": { \"prop1\": \"value1\", \"prop2\": 42 } }\n{ \"meta\": { \"action\": \"U\", ... }, \"key\": { \"pkey\": 2 }, \"value\": { \"prop1\": \"value2\", \"prop2\": null } }\n{ \"meta\": { \"action\": \"D\", ... }, \"key\": { \"pkey\": 3 } }\n```\nIn the example directly above, the first and second items (`update` records) would both validate against the pre-defined schema.\nThe validator would check the following synthesized JSON objects:\n```json\n{ \"pkey\": 1, \"prop1\": \"value1\", \"prop2\": 42 }\n{ \"pkey\": 2, \"prop1\": \"value2\", \"prop2\": null }\n```\nThe third item (a `delete` record) does not have to validate because it indicates that the client is to remove the item.\n\nIf data is returned in Comma-Separated Values format (`*.csv`) then the schema type constraints apply to CSV `key` and `value`\ncolumns, respectively, but not CSV `meta` columns. For example, assume we have the following CSV output:\n```csv\nmeta.action,key.pkey,value.prop1,value.prop2\nU,1,\"value1\",42\nU,2,\"value2\",\nD,3,,\n```\nThen the schema would read the same as in the JSON example above.\n\nNested JSON objects are flattened to simple fields, with composite names constructed using the dot notation (`parent.child`).\n\nIf no scope is specified, then the endpoint uses the default scope of the authenticated user.\nReturns an error if the user has access to several scopes and the scope is not explicitly specified.",
         "parameters": [
           {
