@@ -4,8 +4,6 @@ description: Get familiar with the Data Access Platform.
 
 # Key Concepts
 
-\[some intro]
-
 {% hint style="info" %}
 In this and other documentation, CD2 (Canvas Data 2) and DAP (Data Access Platform) are used interchangeably and refer to the same platform. Whether a feature is labeled as CD2 or DAP, it serves the same function within this system.
 {% endhint %}
@@ -37,14 +35,6 @@ The DAP CLI is a command-line tool that provides efficient access to large volum
 The Client Library comes bundled with the DAP CLI installation. Similar to the command-line tool, it offers a seamless way to interact with the Query API. Written in Python, it allows you to build custom solutions tailored to your data needs.
 
 ## Obtain Data From DAP
-
-When you request data from a specific table, the&#x20;
-
-1. Query API creates a job for the request and put it into the queue.
-
-The flow process happens when DAP CLI or the Client Library is used to obtain data. The only difference is that these tools take care of the API communication&#x20;
-
-<figure><img src=".gitbook/assets/uml.png" alt=""><figcaption></figcaption></figure>
 
 ### **Snapshot Queries**
 
