@@ -19,6 +19,7 @@
 * [Namespaces](namespaces.md)
 * [Authentication](authentication.md)
 * [Status Codes](status-codes.md)
+* [Page 1](page-1.md)
 * [Query API](query-api.md)
 * [Page](page.md)
 * [Key Concepts](key-concepts.md)
