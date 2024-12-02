@@ -1,10 +1,6 @@
 # Page 1
 
-
-
-<details>
-
-<summary>access_tokens</summary>
+### access\_tokens
 
 Stores the access tokens for a user and developer tools.
 
@@ -18,7 +14,7 @@ This table in Canvas Data 2 will only share developer tool specific token metada
 
 `user_id` ([_users_](https://developerdocs.instructure.com/services/dap/dataset/dataset-namespaces/dataset-canvas#users) _|_ _None_): The unique ID of the user the token acts as.
 
-</details>
+
 
 <details>
 
